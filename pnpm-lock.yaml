@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  apps/orchestrator:
+  backend/orchestrator:
     dependencies:
       '@google/genai':
         specifier: ^2.27.0
@@ -60,7 +60,17 @@ importers:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.15)
 
-  apps/web:
+  backend/spacetimedb:
+    dependencies:
+      spacetimedb:
+        specifier: 2.10.*
+        version: 2.10.2(react@19.3.0)
+    devDependencies:
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  frontend/web:
     dependencies:
       '@holdless/db':
         specifier: workspace:*
@@ -128,16 +138,6 @@ importers:
       vitest:
         specifier: ^3.2.0
         version: 3.2.7(@types/node@24.19.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.15)
-
-  spacetimedb:
-    dependencies:
-      spacetimedb:
-        specifier: 2.10.*
-        version: 2.10.2(react@19.3.0)
-    devDependencies:
-      typescript:
-        specifier: ^5.9.0
-        version: 5.9.3
 
 packages:
 

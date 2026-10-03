@@ -19,7 +19,7 @@ const demoMode = bool('DEMO_MODE', true);
 
 export const config = {
   rootDir: root,
-  dataDir: path.join(root, 'apps/orchestrator/.data'),
+  dataDir: path.join(root, 'backend/orchestrator/.data'),
   port: num('ORCHESTRATOR_PORT', 4000),
   publicBaseUrl: env('PUBLIC_BASE_URL').replace(/\/$/, ''),
 

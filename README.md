@@ -70,13 +70,13 @@ Concretely:
 ## Repository layout
 
 ```
-apps/web            Next.js 16 + Tailwind 4 dashboard (spacetimedb/react hooks)
-apps/orchestrator   Node service: CallRunner, Gemini agent, detectors, Twilio/mock providers,
-                    ElevenLabs voice, Wolverine Wireless IVR (TwiML), iMessage channel
-spacetimedb/        SpacetimeDB TypeScript module (tables + reducers)
-packages/shared     State machine, vocab, IVR decision schema + validator, demo script
-packages/db         Generated SpacetimeDB client bindings
-docs/               progress.md, demo-script.md
+frontend/web           Next.js 16 + Tailwind 4 dashboard (spacetimedb/react hooks)
+backend/orchestrator   Node service: CallRunner, Gemini agent, detectors, Twilio/mock providers,
+                       ElevenLabs voice, Wolverine Wireless IVR (TwiML), iMessage channel
+backend/spacetimedb    SpacetimeDB TypeScript module (tables + reducers)
+packages/shared        Shared contract: state machine, vocab, IVR decision schema + validator, demo script
+packages/db            Generated SpacetimeDB client bindings (pnpm stdb:generate)
+docs/                  progress.md, demo-script.md
 ```
 
 ## Setup
@@ -152,7 +152,7 @@ How the Twilio leg works: the support call runs `<Start><Stream>` to fork the co
 - **SpacetimeDB:** the system of record and realtime bus. It holds the state machine, authorization, heartbeat and watchdog (see above).
 - **Twilio:** outbound calls, media streams, DTMF via TwiML, conference bridging, and the hosted demo IVR.
 - **ElevenLabs:** Scribe v2 realtime STT on the live phone audio (μ-law passthrough), plus TTS for the user briefing, the rep courtesy message and any SPEAK action.
-- **Google Gemini:** IVR reasoning with JSON-schema structured output. Prompt in `apps/orchestrator/src/ai/prompts/ivr-agent.md`. Every response is validated by `validateDecision` before it can touch the phone line.
+- **Google Gemini:** IVR reasoning with JSON-schema structured output. Prompt in `backend/orchestrator/src/ai/prompts/ivr-agent.md`. Every response is validated by `validateDecision` before it can touch the phone line.
 - **Photon Spectrum:** iMessage front door. Text a request, get status texts and a live link back.
 
 ## Safety boundaries
@@ -171,7 +171,7 @@ pnpm test     # shared: validation, state machine, parsing · orchestrator: rule
               # Gemini agent (stubbed), Twilio webhooks (stubbed REST), IVR TwiML, full mock flow
 ```
 
-`apps/orchestrator/test/flow.test.ts` is the deterministic spec scenario: goal "incorrect charge" → presses **3**, then **2** → `ON_HOLD` → "Hi, thanks for holding. My name is Sarah…" → `HUMAN_DETECTED` → `USER_CONNECTED`. `spacetime.int.test.ts` runs against the live local module (reducer validation and authorization) and skips itself when no server is running.
+`backend/orchestrator/test/flow.test.ts` is the deterministic spec scenario: goal "incorrect charge" → presses **3**, then **2** → `ON_HOLD` → "Hi, thanks for holding. My name is Sarah…" → `HUMAN_DETECTED` → `USER_CONNECTED`. `spacetime.int.test.ts` runs against the live local module (reducer validation and authorization) and skips itself when no server is running.
 
 ## Known limitations
 

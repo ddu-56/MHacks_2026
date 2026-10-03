@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @holdless/web --filter @holdless/orchestrator dev",
     "stdb:start": "spacetime start",
-    "stdb:publish": "spacetime publish holdless --module-path spacetimedb --server local --yes",
-    "stdb:reset": "spacetime publish holdless --module-path spacetimedb --server local --delete-data=always --yes",
-    "stdb:generate": "spacetime generate --lang typescript --out-dir packages/db/src/bindings --module-path spacetimedb --yes",
+    "stdb:publish": "spacetime publish holdless --module-path backend/spacetimedb --server local --yes",
+    "stdb:reset": "spacetime publish holdless --module-path backend/spacetimedb --server local --delete-data=always --yes",
+    "stdb:generate": "spacetime generate --lang typescript --out-dir packages/db/src/bindings --module-path backend/spacetimedb --yes",
     "stdb:deploy": "pnpm stdb:publish && pnpm stdb:generate",
     "dev:web": "pnpm --filter @holdless/web dev",
     "dev:orchestrator": "pnpm --filter @holdless/orchestrator dev",

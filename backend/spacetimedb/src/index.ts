@@ -1,6 +1,6 @@
 import { schema, table, t, SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
 import { ScheduleAt, type Timestamp } from 'spacetimedb';
-import { canTransition, isCallStatus, isTerminal, type CallStatus } from '../../packages/shared/src/states.ts';
+import { canTransition, isCallStatus, isTerminal, type CallStatus } from '../../../packages/shared/src/states.ts';
 
 const callSession = table(
   { name: 'call_session', public: true },

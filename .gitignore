@@ -5,4 +5,5 @@ node_modules
 *.log
 .DS_Store
 dist
-apps/orchestrator/.data
+backend/orchestrator/.data
+*.tsbuildinfo
