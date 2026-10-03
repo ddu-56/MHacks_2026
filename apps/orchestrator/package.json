@@ -1,0 +1,32 @@
+{
+  "name": "@holdless/orchestrator",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@google/genai": "^2.27.0",
+    "@holdless/db": "workspace:*",
+    "@holdless/shared": "workspace:*",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "spacetimedb": "2.10.*",
+    "spectrum-ts": "^12.10.1",
+    "twilio": "^6.1.2",
+    "ws": "^8.18.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
