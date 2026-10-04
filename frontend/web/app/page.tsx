@@ -10,6 +10,7 @@ import { CallList } from '@/components/CallList';
 import { StatusChips } from '@/components/Header';
 import { WebSearch } from '@/components/WebSearch';
 import Link from 'next/link';
+import { motion } from 'motion/react';
 import { useTable } from 'spacetimedb/react';
 import { tables } from '@holdless/db';
 import { isTerminal, type CallStatus } from '@holdless/shared';
@@ -52,6 +53,13 @@ export default function Home() {
           </div>
           <WebSearch />
         </header>
+        <motion.div
+          key={activeTab}
+          className="flex flex-1 flex-col"
+          initial={{ opacity: 0, scale: 0.96, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+        >
         {activeTab === 'advisor' && (
           <AdvisorHome onSelectAction={handleSelectAction} />
         )}
@@ -78,6 +86,7 @@ export default function Home() {
             <CallList />
           </div>
         )}
+        </motion.div>
       </main>
     </div>
   );
