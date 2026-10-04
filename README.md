@@ -147,6 +147,21 @@ On a Twilio trial account, verify the user and rep numbers first.
 
 How the Twilio leg works: the support call runs `<Start><Stream>` to fork the company's audio to `wss://…/twilio/media`. That audio goes to ElevenLabs Scribe and a hold-music energy classifier, or to Twilio real-time transcription as a fallback. Key presses and speech are sent by updating the call's TwiML (`<Play digits>`, `<Play>` ElevenLabs audio). The fork re-attaches over REST if it ever drops. On handoff, the rep goes into a `<Conference>` with hold music. The user's call plays a briefing and requires **press 1**, and then joins that conference.
 
+## Browser agent: Amazon returns
+
+Press a button and HoldLess opens its own Chrome window and returns an item on Amazon for you.
+
+1. Run `pnpm dev`, then open **http://localhost:4000/agent** (served by the orchestrator; local machine only).
+2. Enter what to return and why (order number optional). Press **Start Amazon return**.
+3. First time only: a Chrome window opens on Amazon's sign-in page. Sign in there yourself (password and 2FA never touch HoldLess). The session stays in the agent's dedicated profile (`backend/orchestrator/.data/chrome-profile`) for next time.
+4. The agent finds the order, selects the item, picks the matching return reason, refunds to your **original payment method**, chooses a drop-off, and stops at **Confirm your return**. Press **Approve & submit** (or tick "let HoldLess click Confirm" before starting). The result, return code and QR show up in the console.
+
+How it works: the button calls the `requestTask` reducer, which inserts a `support_task` row (channel `browser`). The orchestrator claims it, drives Chrome with Playwright (`backend/orchestrator/src/browser/`), and streams every step into `support_task` and `task_event`. The real frontend can use the same reducers (`requestTask`, `approveTask`, `cancelTask`) and subscribe to the same tables.
+
+Safety: a dedicated Chrome profile (never your everyday one), no bot-evasion flags, a hard block on buy, cart, gift-card, replacement, payment-change and cancel-order controls, and an approval gate before the final submit. On a page it doesn't recognize, it asks Gemini to pick from vetted controls (when `GEMINI_API_KEY` is set) or hands the step to you in the window.
+
+Tests run the full flow headless against a local Amazon stand-in (`backend/orchestrator/test/fixtures/mock-amazon.ts`). To rehearse without your account, run `npx tsx test/fixtures/serve-mock-amazon.ts 4555` in `backend/orchestrator`, then start the orchestrator with `AMAZON_BASE_URL=http://127.0.0.1:4555`.
+
 ## Sponsor technologies
 
 - **SpacetimeDB:** the system of record and realtime bus. It holds the state machine, authorization, heartbeat and watchdog (see above).

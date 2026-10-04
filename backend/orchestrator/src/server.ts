@@ -22,9 +22,10 @@ function verifyTwilio(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-export function startHttpServer({ telephony }: { telephony: TelephonyProvider }) {
+export function startHttpServer({ telephony, mount }: { telephony: TelephonyProvider; mount?: (app: express.Express) => void }) {
   const app = express();
   app.use(express.urlencoded({ extended: false }));
+  app.use(express.json({ limit: '32kb' }));
 
   app.get('/health', (_req, res) => {
     res.json({ ok: true, telephony: telephony.name, demoMode: config.demoMode });
@@ -41,6 +42,7 @@ export function startHttpServer({ telephony }: { telephony: TelephonyProvider })
   app.use(['/twilio', '/ivr'], verifyTwilio);
   mountWolverineIvr(app);
   telephony.mount?.(app);
+  mount?.(app);
 
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/twilio/media' });

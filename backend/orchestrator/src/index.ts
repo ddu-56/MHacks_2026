@@ -1,6 +1,8 @@
 import type { CallSession } from '@holdless/db';
 import { DEMO_PROFILE, isTerminal, type CallStatus } from '@holdless/shared';
 import { createIvrAgent } from './ai/gemini';
+import { createReturnAssist } from './browser/assist';
+import { mountAgentConsole } from './console/agent-console';
 import { IMessageChannel } from './channels/imessage';
 import { gatherContext, ManualContextProvider, type ContextProvider } from './context/provider';
 import { config } from './config';
@@ -9,10 +11,13 @@ import { CallRunner } from './runner';
 import { startHttpServer } from './server';
 import { SpacetimeStore } from './store/spacetime';
 import { createTelephony } from './telephony';
+import { openOwnChrome } from './browser/session';
+import { TaskManager } from './tasks/manager';
 
 async function main() {
   const runners = new Map<bigint, CallRunner>();
   let store: SpacetimeStore | null = null;
+  let tasks: TaskManager | null = null;
   let ready = false;
 
   const contextProviders: ContextProvider[] = [new ManualContextProvider()];
@@ -60,6 +65,7 @@ async function main() {
     onCallUpdated: (prev, next) => {
       if (!prev.cancelRequested && next.cancelRequested) void runners.get(next.id)?.cancel();
     },
+    onTaskInserted: (task) => tasks?.enqueue(task),
   });
   await store.register({
     mode: telephony.name,
@@ -79,12 +85,36 @@ async function main() {
     else if (!isTerminal(status)) void store.fail(row.id, 'The call agent restarted and this call was dropped.');
   }
 
-  startHttpServer({ telephony });
+  // Browser agent: SpacetimeDB support_task rows (channel=browser) drive a real Chrome window.
+  const taskStore = store;
+  tasks = new TaskManager(taskStore, {
+    baseUrl: config.browser.amazonBaseUrl,
+    openSession: () => openOwnChrome(config.browser.profileDir, config.browser.channel, config.browser.headless),
+    userWaitMs: config.browser.userWaitMinutes * 60_000,
+    assist: await createReturnAssist(config.gemini.apiKey, config.gemini.model),
+    lingerMs: 8000,
+  });
+  tasks.resume();
+  const taskManager = tasks;
+
+  startHttpServer({
+    telephony,
+    mount: (app) =>
+      mountAgentConsole(app, {
+        requestTask: (args) => taskStore.reducers.requestTask(args),
+        approveTask: (taskId) => taskStore.reducers.approveTask({ taskId }),
+        cancelTask: (taskId) => taskStore.reducers.cancelTask({ taskId }),
+        tasks: () => taskStore.allTasks(),
+        events: (taskId) => taskStore.taskEvents(taskId),
+        artifacts: (taskId) => taskManager.artifacts.get(taskId),
+      }),
+  });
   if (imessage) await imessage.start().catch((err) => log.warn(`iMessage channel failed to start: ${(err as Error).message}`));
   else log.info('iMessage channel off (set PHOTON_PROJECT_ID / PHOTON_PROJECT_SECRET to enable)');
   log.info(
     `HoldLess orchestrator ready — telephony=${telephony.name} demo=${config.demoMode} reasoning=${agent.name} module=${config.spacetime.module}`,
   );
+  log.info(`Browser agent console: http://localhost:${config.port}/agent (store: ${config.browser.amazonBaseUrl})`);
 }
 
 main().catch((err) => {

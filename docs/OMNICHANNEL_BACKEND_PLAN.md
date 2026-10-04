@@ -68,7 +68,11 @@ All in the TypeScript module at `backend/spacetimedb/src/index.ts`.
 - Delete `frontend/web/app/api/triage` and `frontend/web/app/api/email/dispatch`.
 - `/api/search` can stay: it only reads and keeps no state. Add a simple rate limit if the app is ever exposed beyond localhost.
 
-## Phase 3: Real browser agent, fake company (optional, time-boxed to 2 h)
+## Phase 3: Browser agent
+
+> **Status (2026-10-03):** built, targeting **real Amazon at the team's request**, with these safeguards: a dedicated Chrome profile (you sign in yourself), no evasion flags, blocked purchase and payment controls, and an approval gate before submitting. See the README section "Browser agent: Amazon returns". The fake-portal design below remains the fallback for rehearsals (`test/fixtures/mock-amazon.ts`).
+
+### Original fake-portal design
 
 - Serve a small **Wolverine Wireless account portal** with no login: an orders list, a return wizard (item, reason, drop-off method) and a confirmation page with a return code.
 - A visible Playwright Chrome window, with **its own temporary profile**, completes the return using fixed steps. Gemini only picks which order matches the request, from the known list, and its pick is validated before use.

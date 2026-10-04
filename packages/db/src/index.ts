@@ -5,6 +5,8 @@ export type {
   CallEvent,
   CallSession,
   Orchestrator,
+  SupportTask,
+  TaskEvent,
   TranscriptSegment,
   UserContext,
 } from './bindings/types';

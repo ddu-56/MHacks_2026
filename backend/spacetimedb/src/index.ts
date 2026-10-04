@@ -1,6 +1,13 @@
 import { schema, table, t, SenderError, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
 import { ScheduleAt, type Timestamp } from 'spacetimedb';
 import { canTransition, isCallStatus, isTerminal, type CallStatus } from '../../../packages/shared/src/states.ts';
+import {
+  canTaskTransition,
+  isTaskChannel,
+  isTaskStatus,
+  isTaskTerminal,
+  type TaskStatus,
+} from '../../../packages/shared/src/tasks.ts';
 
 const callSession = table(
   { name: 'call_session', public: true },
@@ -111,6 +118,41 @@ const orchestrator = table(
   },
 );
 
+/** A non-phone support task (browser agent, email ticket). Phone tasks keep using call_session. */
+const supportTask = table(
+  { name: 'support_task', public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    userId: t.string(),
+    channel: t.string(),
+    provider: t.string(),
+    query: t.string(),
+    paramsJson: t.string(),
+    status: t.string(),
+    step: t.string(),
+    summary: t.string(),
+    result: t.string(),
+    errorMessage: t.string(),
+    approveRequested: t.bool(),
+    cancelRequested: t.bool(),
+    createdAt: t.timestamp(),
+    updatedAt: t.timestamp(),
+    endedAt: t.option(t.timestamp()),
+  },
+);
+
+const taskEvent = table(
+  { name: 'task_event', public: true },
+  {
+    id: t.u64().primaryKey().autoInc(),
+    taskId: t.u64().index('btree'),
+    timestamp: t.timestamp(),
+    kind: t.string(),
+    title: t.string(),
+    description: t.string(),
+  },
+);
+
 const watchdogTimer = table(
   { name: 'watchdog_timer' },
   {
@@ -127,12 +169,15 @@ const spacetimedb = schema({
   agentStatus,
   userContext,
   orchestrator,
+  supportTask,
+  taskEvent,
   watchdogTimer,
 });
 export default spacetimedb;
 
 type Ctx = ReducerCtx<InferSchema<typeof spacetimedb>>;
 type CallRow = NonNullable<ReturnType<Ctx['db']['callSession']['id']['find']>>;
+type TaskRow = NonNullable<ReturnType<Ctx['db']['supportTask']['id']['find']>>;
 
 const AGENT_NAME = 'HoldLess Agent';
 const HEARTBEAT_STALE_MICROS = 15_000_000n;
@@ -477,3 +522,136 @@ export const watchdog = spacetimedb.reducer({ onSchedule: watchdogTimer }, { tim
     }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Support tasks (browser agent, email): same pattern as calls — clients request,
+// the orchestrator claims and drives, every step is a row the UI subscribes to.
+// ---------------------------------------------------------------------------
+
+function requireTask(ctx: Ctx, taskId: bigint): TaskRow {
+  const task = ctx.db.supportTask.id.find(taskId);
+  if (!task) throw new SenderError(`Task ${taskId} not found`);
+  return task;
+}
+
+function requireTaskOwnerOrOrchestrator(ctx: Ctx, task: TaskRow) {
+  const orch = ctx.db.orchestrator.id.find(0);
+  const isOrchestrator = !!orch && orch.identity.isEqual(ctx.sender);
+  if (task.userId !== ctx.sender.toHexString() && !isOrchestrator) throw new SenderError('Not your task');
+}
+
+function addTaskEvent(ctx: Ctx, taskId: bigint, kind: string, title: string, description = '') {
+  ctx.db.taskEvent.insert({ id: 0n, taskId, timestamp: ctx.timestamp, kind, title, description });
+}
+
+function moveTask(ctx: Ctx, task: TaskRow, to: TaskStatus, patch: Partial<TaskRow> = {}): TaskRow {
+  const from = task.status as TaskStatus;
+  if (!canTaskTransition(from, to)) throw new SenderError(`Illegal task transition ${from} -> ${to}`);
+  const next: TaskRow = { ...task, ...patch, status: to, updatedAt: ctx.timestamp };
+  if (isTaskTerminal(to) && !task.endedAt) next.endedAt = ctx.timestamp;
+  return ctx.db.supportTask.id.update(next);
+}
+
+export const requestTask = spacetimedb.reducer(
+  { channel: t.string(), provider: t.string(), query: t.string(), paramsJson: t.string() },
+  (ctx, { channel, provider, query, paramsJson }) => {
+    if (!isTaskChannel(channel) || channel === 'phone') throw new SenderError('Use requestCall for phone tasks');
+    const q = requireText(query, 'Request', 500);
+    if (paramsJson.length > 4000) throw new SenderError('Task details are too long');
+    try {
+      JSON.parse(paramsJson || '{}');
+    } catch {
+      throw new SenderError('Task details must be JSON');
+    }
+    const task = ctx.db.supportTask.insert({
+      id: 0n,
+      userId: ctx.sender.toHexString(),
+      channel,
+      provider: requireText(provider, 'Provider', 80),
+      query: q,
+      paramsJson: paramsJson || '{}',
+      status: 'REQUESTED',
+      step: 'Queued',
+      summary: 'Waiting for the agent to pick this up',
+      result: '',
+      errorMessage: '',
+      approveRequested: false,
+      cancelRequested: false,
+      createdAt: ctx.timestamp,
+      updatedAt: ctx.timestamp,
+      endedAt: undefined,
+    });
+    addTaskEvent(ctx, task.id, 'info', `Requested: ${provider} ${channel} task`, q);
+  },
+);
+
+/** The user approves the agent's pending consequential step (e.g. "Confirm your return"). */
+export const approveTask = spacetimedb.reducer({ taskId: t.u64() }, (ctx, { taskId }) => {
+  const task = requireTask(ctx, taskId);
+  requireTaskOwnerOrOrchestrator(ctx, task);
+  if (isTaskTerminal(task.status as TaskStatus) || task.approveRequested) return;
+  ctx.db.supportTask.id.update({ ...task, approveRequested: true, updatedAt: ctx.timestamp });
+  addTaskEvent(ctx, taskId, 'action', 'You approved the final step');
+});
+
+export const cancelTask = spacetimedb.reducer({ taskId: t.u64() }, (ctx, { taskId }) => {
+  const task = requireTask(ctx, taskId);
+  requireTaskOwnerOrOrchestrator(ctx, task);
+  if (isTaskTerminal(task.status as TaskStatus)) return;
+  if (task.status === 'REQUESTED') {
+    moveTask(ctx, task, 'CANCELLED', { summary: 'Cancelled before starting' });
+  } else {
+    ctx.db.supportTask.id.update({ ...task, cancelRequested: true, updatedAt: ctx.timestamp });
+  }
+  addTaskEvent(ctx, taskId, 'info', 'Cancellation requested');
+});
+
+export const claimTask = spacetimedb.reducer({ taskId: t.u64() }, (ctx, { taskId }) => {
+  requireOrchestrator(ctx);
+  const task = requireTask(ctx, taskId);
+  if (task.status !== 'REQUESTED') throw new SenderError(`Task ${taskId} already claimed`);
+  moveTask(ctx, task, 'RUNNING', { step: 'Starting', summary: 'Agent started' });
+});
+
+export const updateTask = spacetimedb.reducer(
+  { taskId: t.u64(), status: t.string(), step: t.string(), summary: t.string() },
+  (ctx, { taskId, status, step, summary }) => {
+    requireOrchestrator(ctx);
+    if (!isTaskStatus(status)) throw new SenderError(`Unknown task status ${status}`);
+    const task = requireTask(ctx, taskId);
+    // Leaving WAITING_FOR_USER consumes a pending approval.
+    const approveRequested = status === 'WAITING_FOR_USER' ? task.approveRequested : false;
+    moveTask(ctx, task, status, { step: step.slice(0, 120), summary: summary.slice(0, 300), approveRequested });
+  },
+);
+
+export const appendTaskEvent = spacetimedb.reducer(
+  { taskId: t.u64(), kind: t.string(), title: t.string(), description: t.string() },
+  (ctx, { taskId, kind, title, description }) => {
+    requireOrchestrator(ctx);
+    requireTask(ctx, taskId);
+    addTaskEvent(ctx, taskId, kind, title.slice(0, 200), description.slice(0, 1000));
+  },
+);
+
+export const completeTask = spacetimedb.reducer(
+  { taskId: t.u64(), summary: t.string(), result: t.string() },
+  (ctx, { taskId, summary, result }) => {
+    requireOrchestrator(ctx);
+    const task = requireTask(ctx, taskId);
+    if (isTaskTerminal(task.status as TaskStatus)) return;
+    moveTask(ctx, task, 'COMPLETED', { step: 'Done', summary, result: result.slice(0, 1000), approveRequested: false });
+    addTaskEvent(ctx, taskId, 'success', summary, result);
+  },
+);
+
+export const failTask = spacetimedb.reducer(
+  { taskId: t.u64(), errorMessage: t.string(), cancelled: t.bool() },
+  (ctx, { taskId, errorMessage, cancelled }) => {
+    requireOrchestrator(ctx);
+    const task = requireTask(ctx, taskId);
+    if (isTaskTerminal(task.status as TaskStatus)) return;
+    moveTask(ctx, task, cancelled ? 'CANCELLED' : 'FAILED', { step: cancelled ? 'Cancelled' : 'Failed', summary: errorMessage, errorMessage });
+    addTaskEvent(ctx, taskId, cancelled ? 'info' : 'error', cancelled ? 'Cancelled' : 'Task failed', errorMessage);
+  },
+);

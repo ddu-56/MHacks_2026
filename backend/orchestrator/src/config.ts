@@ -68,6 +68,17 @@ export const config = {
   },
   webBaseUrl: env('WEB_BASE_URL', 'http://localhost:3001').replace(/\/$/, ''),
 
+  browser: {
+    /** Store being automated. Tests point this at a local mock. */
+    amazonBaseUrl: env('AMAZON_BASE_URL', 'https://www.amazon.com').replace(/\/$/, ''),
+    /** Dedicated Chrome profile for the agent (never your everyday profile). Sign in once; the session persists. */
+    profileDir: env('BROWSER_PROFILE_DIR', path.join(root, 'backend/orchestrator/.data/chrome-profile')),
+    channel: env('BROWSER_CHANNEL', 'chrome'),
+    headless: bool('BROWSER_HEADLESS', false),
+    /** Minutes to wait for you to sign in or finish a step the agent can't do. */
+    userWaitMinutes: num('BROWSER_USER_WAIT_MINUTES', 10),
+  },
+
   agent: {
     humanThreshold: num('HUMAN_CONFIDENCE_THRESHOLD', 0.8),
     possibleHumanThreshold: num('POSSIBLE_HUMAN_THRESHOLD', 0.5),

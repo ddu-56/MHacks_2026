@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DbConnection, type CallSession } from '@holdless/db';
+import { DbConnection, type CallSession, type SupportTask, type TaskEvent } from '@holdless/db';
 import type { CallStatus } from '@holdless/shared';
 import { config } from '../config';
 import { log } from '../log';
@@ -24,6 +24,8 @@ function saveToken(token: string) {
 export interface SpacetimeHandlers {
   onCallInserted(call: CallSession): void;
   onCallUpdated(prev: CallSession, next: CallSession): void;
+  onTaskInserted?(task: SupportTask): void;
+  onTaskUpdated?(prev: SupportTask, next: SupportTask): void;
 }
 
 export class SpacetimeStore implements CallStore {
@@ -40,10 +42,17 @@ export class SpacetimeStore implements CallStore {
           log.info(`SpacetimeDB connected as ${identity.toHexString().slice(0, 12)}…`);
           c.db.callSession.onInsert((_ctx, row) => handlers.onCallInserted(row));
           c.db.callSession.onUpdate((_ctx, prev, next) => handlers.onCallUpdated(prev, next));
+          c.db.supportTask.onInsert((_ctx, row) => handlers.onTaskInserted?.(row));
+          c.db.supportTask.onUpdate((_ctx, prev, next) => handlers.onTaskUpdated?.(prev, next));
           c.subscriptionBuilder()
             .onApplied(() => resolve(new SpacetimeStore(c)))
             .onError((ctx) => reject(ctx.event ?? new Error('Subscription failed')))
-            .subscribe(['SELECT * FROM call_session', 'SELECT * FROM user_context']);
+            .subscribe([
+              'SELECT * FROM call_session',
+              'SELECT * FROM user_context',
+              'SELECT * FROM support_task',
+              'SELECT * FROM task_event',
+            ]);
         })
         .onConnectError((_ctx, err) => reject(err))
         .onDisconnect(() => {
@@ -166,5 +175,39 @@ export class SpacetimeStore implements CallStore {
 
   fail(callId: bigint, errorMessage: string) {
     return this.call('failCall', () => this.conn.reducers.failCall({ callId, errorMessage }));
+  }
+
+  // --- Support tasks -------------------------------------------------------
+
+  allTasks(): SupportTask[] {
+    return [...this.conn.db.supportTask.iter()];
+  }
+
+  getTask(taskId: bigint): SupportTask | null {
+    return this.conn.db.supportTask.id.find(taskId) ?? null;
+  }
+
+  taskEvents(taskId: bigint): TaskEvent[] {
+    return [...this.conn.db.taskEvent.iter()].filter((e) => e.taskId === taskId);
+  }
+
+  claimTask(taskId: bigint) {
+    return this.conn.reducers.claimTask({ taskId });
+  }
+
+  updateTask(taskId: bigint, status: string, step: string, summary: string) {
+    return this.call(`updateTask(${status})`, () => this.conn.reducers.updateTask({ taskId, status, step, summary }));
+  }
+
+  taskEvent(taskId: bigint, kind: string, title: string, description = '') {
+    return this.call('appendTaskEvent', () => this.conn.reducers.appendTaskEvent({ taskId, kind, title, description }));
+  }
+
+  completeTask(taskId: bigint, summary: string, result: string) {
+    return this.call('completeTask', () => this.conn.reducers.completeTask({ taskId, summary, result }));
+  }
+
+  failTask(taskId: bigint, errorMessage: string, cancelled = false) {
+    return this.call('failTask', () => this.conn.reducers.failTask({ taskId, errorMessage, cancelled }));
   }
 }

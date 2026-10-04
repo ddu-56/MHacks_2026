@@ -85,6 +85,36 @@ export const Orchestrator = __t.object("Orchestrator", {
 });
 export type Orchestrator = __Infer<typeof Orchestrator>;
 
+export const SupportTask = __t.object("SupportTask", {
+  id: __t.u64(),
+  userId: __t.string(),
+  channel: __t.string(),
+  provider: __t.string(),
+  query: __t.string(),
+  paramsJson: __t.string(),
+  status: __t.string(),
+  step: __t.string(),
+  summary: __t.string(),
+  result: __t.string(),
+  errorMessage: __t.string(),
+  approveRequested: __t.bool(),
+  cancelRequested: __t.bool(),
+  createdAt: __t.timestamp(),
+  updatedAt: __t.timestamp(),
+  endedAt: __t.option(__t.timestamp()),
+});
+export type SupportTask = __Infer<typeof SupportTask>;
+
+export const TaskEvent = __t.object("TaskEvent", {
+  id: __t.u64(),
+  taskId: __t.u64(),
+  timestamp: __t.timestamp(),
+  kind: __t.string(),
+  title: __t.string(),
+  description: __t.string(),
+});
+export type TaskEvent = __Infer<typeof TaskEvent>;
+
 export const TranscriptSegment = __t.object("TranscriptSegment", {
   id: __t.u64(),
   callId: __t.u64(),

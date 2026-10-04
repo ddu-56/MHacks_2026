@@ -14,6 +14,8 @@ _Last updated: 2026-10-03_
 - **Hybrid mode:** `TELEPHONY_MODE=hybrid` (simulated company line + real Twilio calls to the user and optional teammate rep, scripted-rep fallback, readable trial-account errors). Works on a free Twilio trial with one number.
 - **Tests:** 16 shared + 33 orchestrator (incl. full mock flow, stubbed Twilio webhooks, live SpacetimeDB reducer test).
 
+- **Browser agent (Amazon returns):** `support_task`/`task_event` tables + reducers, Playwright agent with a dedicated Chrome profile, sign-in handoff, approval gate, console at `localhost:4000/agent`. Verified end to end against a local Amazon stand-in and checked against real amazon.com's sign-in redirect.
+
 ## Currently working
 - Reviewing backend architecture for Local Chrome Profile reuse & Email dispatch API.
 

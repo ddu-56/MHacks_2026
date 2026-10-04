@@ -35,21 +35,29 @@ import {
 
 // Import all reducer arg schemas
 import AppendCallEventReducer from "./append_call_event_reducer";
+import AppendTaskEventReducer from "./append_task_event_reducer";
 import AppendTranscriptReducer from "./append_transcript_reducer";
+import ApproveTaskReducer from "./approve_task_reducer";
 import CancelCallReducer from "./cancel_call_reducer";
+import CancelTaskReducer from "./cancel_task_reducer";
 import ClaimCallReducer from "./claim_call_reducer";
+import ClaimTaskReducer from "./claim_task_reducer";
 import CompleteCallReducer from "./complete_call_reducer";
+import CompleteTaskReducer from "./complete_task_reducer";
 import FailCallReducer from "./fail_call_reducer";
+import FailTaskReducer from "./fail_task_reducer";
 import HeartbeatReducer from "./heartbeat_reducer";
 import MarkHumanDetectedReducer from "./mark_human_detected_reducer";
 import MarkUserConnectedReducer from "./mark_user_connected_reducer";
 import RecordAgentActionReducer from "./record_agent_action_reducer";
 import RegisterOrchestratorReducer from "./register_orchestrator_reducer";
 import RequestCallReducer from "./request_call_reducer";
+import RequestTaskReducer from "./request_task_reducer";
 import SetAgentStatusReducer from "./set_agent_status_reducer";
 import SetCallSidsReducer from "./set_call_sids_reducer";
 import UpdateCallStatusReducer from "./update_call_status_reducer";
 import UpdateHumanConfidenceReducer from "./update_human_confidence_reducer";
+import UpdateTaskReducer from "./update_task_reducer";
 
 // Import all procedure arg schemas
 
@@ -59,6 +67,8 @@ import CallActionRow from "./call_action_table";
 import CallEventRow from "./call_event_table";
 import CallSessionRow from "./call_session_table";
 import OrchestratorRow from "./orchestrator_table";
+import SupportTaskRow from "./support_task_table";
+import TaskEventRow from "./task_event_table";
 import TranscriptSegmentRow from "./transcript_segment_table";
 import UserContextRow from "./user_context_table";
 
@@ -130,6 +140,31 @@ const tablesSchema = __schema({
       { name: 'orchestrator_id_key', constraint: 'unique', columns: ['id'] },
     ],
   }, OrchestratorRow),
+  supportTask: __table({
+    name: 'support_task',
+    indexes: [
+      { accessor: 'id', name: 'support_task_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+    ],
+    constraints: [
+      { name: 'support_task_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, SupportTaskRow),
+  taskEvent: __table({
+    name: 'task_event',
+    indexes: [
+      { accessor: 'id', name: 'task_event_id_idx_btree', algorithm: 'btree', columns: [
+        'id',
+      ] },
+      { accessor: 'taskId', name: 'task_event_task_id_idx_btree', algorithm: 'btree', columns: [
+        'taskId',
+      ] },
+    ],
+    constraints: [
+      { name: 'task_event_id_key', constraint: 'unique', columns: ['id'] },
+    ],
+  }, TaskEventRow),
   transcriptSegment: __table({
     name: 'transcript_segment',
     indexes: [
@@ -163,21 +198,29 @@ const tablesSchema = __schema({
 /** The schema information for all reducers in this module. This is defined the same way as the reducers would have been defined in the server, except the body of the reducer is omitted in code generation. */
 const reducersSchema = __reducers(
   __reducerSchema("append_call_event", AppendCallEventReducer),
+  __reducerSchema("append_task_event", AppendTaskEventReducer),
   __reducerSchema("append_transcript", AppendTranscriptReducer),
+  __reducerSchema("approve_task", ApproveTaskReducer),
   __reducerSchema("cancel_call", CancelCallReducer),
+  __reducerSchema("cancel_task", CancelTaskReducer),
   __reducerSchema("claim_call", ClaimCallReducer),
+  __reducerSchema("claim_task", ClaimTaskReducer),
   __reducerSchema("complete_call", CompleteCallReducer),
+  __reducerSchema("complete_task", CompleteTaskReducer),
   __reducerSchema("fail_call", FailCallReducer),
+  __reducerSchema("fail_task", FailTaskReducer),
   __reducerSchema("heartbeat", HeartbeatReducer),
   __reducerSchema("mark_human_detected", MarkHumanDetectedReducer),
   __reducerSchema("mark_user_connected", MarkUserConnectedReducer),
   __reducerSchema("record_agent_action", RecordAgentActionReducer),
   __reducerSchema("register_orchestrator", RegisterOrchestratorReducer),
   __reducerSchema("request_call", RequestCallReducer),
+  __reducerSchema("request_task", RequestTaskReducer),
   __reducerSchema("set_agent_status", SetAgentStatusReducer),
   __reducerSchema("set_call_sids", SetCallSidsReducer),
   __reducerSchema("update_call_status", UpdateCallStatusReducer),
   __reducerSchema("update_human_confidence", UpdateHumanConfidenceReducer),
+  __reducerSchema("update_task", UpdateTaskReducer),
 );
 
 /** The schema information for all procedures in this module. This is defined the same way as the procedures would have been defined in the server. */

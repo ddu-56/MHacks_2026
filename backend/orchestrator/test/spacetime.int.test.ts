@@ -57,3 +57,34 @@ describe.skipIf(!reachable)('SpacetimeDB module reducers (live local server)', (
     conn.disconnect();
   });
 });
+
+describe.skipIf(!reachable)('support task reducers (live local server)', () => {
+  it('validates requests, keeps tasks owner-only and orchestrator-driven', async () => {
+    const owner = await connect();
+    const stranger = await connect();
+    await owner.subscriptionBuilder().subscribe('SELECT * FROM support_task');
+
+    await expect(owner.reducers.requestTask({ channel: 'phone', provider: 'Amazon', query: 'x', paramsJson: '{}' })).rejects.toThrow(/requestCall/);
+    await expect(owner.reducers.requestTask({ channel: 'browser', provider: 'Amazon', query: 'x', paramsJson: 'not json' })).rejects.toThrow(/JSON/);
+    await expect(owner.reducers.requestTask({ channel: 'browser', provider: 'Amazon', query: '  ', paramsJson: '{}' })).rejects.toThrow(/required/);
+
+    const tag = `Return test item ${Date.now()}`;
+    await owner.reducers.requestTask({ channel: 'browser', provider: 'Test Store', query: tag, paramsJson: JSON.stringify({ item: tag, reason: 'test' }) });
+    let task: { id: bigint; status: string; approveRequested: boolean; cancelRequested: boolean } | undefined;
+    await until(() => !!(task = [...owner.db.supportTask.iter()].find((t) => t.query === tag)));
+
+    // Only the orchestrator may move a task forward; only the owner may approve/cancel it.
+    await expect(owner.reducers.claimTask({ taskId: task!.id })).rejects.toThrow(/orchestrator/);
+    await expect(owner.reducers.completeTask({ taskId: task!.id, summary: 'x', result: 'x' })).rejects.toThrow(/orchestrator/);
+    await expect(stranger.reducers.approveTask({ taskId: task!.id })).rejects.toThrow(/Not your task/);
+    await expect(stranger.reducers.cancelTask({ taskId: task!.id })).rejects.toThrow(/Not your task/);
+
+    await owner.reducers.cancelTask({ taskId: task!.id });
+    await until(() => {
+      const t = owner.db.supportTask.id.find(task!.id)!;
+      return t.status === 'CANCELLED' || t.status === 'FAILED' || t.cancelRequested;
+    });
+    owner.disconnect();
+    stranger.disconnect();
+  });
+});
