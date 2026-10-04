@@ -1,5 +1,5 @@
 import { validateDecision, type CallStatus, type IvrDecision } from '@holdless/shared';
-import { parseMenuOptions } from './ai/rules';
+import { isConsequentialOption, parseMenuOptions } from './ai/rules';
 import type { AgentTurn, IvrAgent } from './ai/types';
 import { classifyHuman, combineConfidence, isHoldAnnouncement, scoreHumanLikelihood } from './detection/human';
 import { log } from './log';
@@ -10,6 +10,8 @@ export interface RunnerSettings {
   humanThreshold: number;
   possibleHumanThreshold: number;
   utteranceGapMs: number;
+  /** Longer pause allowed mid-menu: after hearing an option, wait this long for more before acting. Default 2.5× utteranceGapMs. */
+  menuGapMs?: number;
   maxKeyPresses: number;
   maxHoldMinutes: number;
   userAnswerTimeoutSeconds: number;
@@ -34,6 +36,11 @@ const LINE_LABEL = {
 } as const;
 
 const MAX_LOW_CONFIDENCE = 4;
+const MAX_REDIALS = 2;
+const MENU_LINE = /\b(press|dial|oprima|marque)\s+(\d|one|two|three|four|five|six|seven|eight|nine|zero|star|pound)\b|,\s*say\b/i;
+const MENU_CLOSER = /\b(hear (these|the|those) options again|to repeat|main menu|previous menu|stay on the line|otherwise|para español)\b|\?\s*$/i;
+const CLOSED_HINT = /\b(closed|business hours|call back (during|between))\b/i;
+const VERIFY_HINT = /\b(verif(y|ication)|security|identity)\b/i;
 const MAX_SAME_MENU = 3;
 const MAX_USER_ATTEMPTS = 2;
 const REP_PARK_MESSAGE = "Thanks for picking up! One moment please, I'm connecting you with the account holder now.";
@@ -61,6 +68,9 @@ export class CallRunner {
   private ivrAnnounced = false;
   private userAttempts = 0;
   private lastMenuLabel = '';
+  private dialAttempt = 0;
+  private redials = 0;
+  private lastHeard = '';
 
   constructor(
     private readonly call: CallSnapshot,
@@ -100,32 +110,45 @@ export class CallRunner {
   }
 
   start() {
-    return this.enqueue(async () => {
-      const { store, telephony } = this.deps;
-      await this.setStatus('DIALING', { summary: `Dialing ${this.call.companyName}` });
-      await store.agent(this.id, 'ACTING', `Dialing ${this.call.companyName}…`);
-      await store.event(this.id, {
-        type: 'OUTBOUND_CALL_STARTED',
-        actor: 'TELEPHONY',
-        title: `Calling ${this.call.companyName}`,
-        description: `${this.call.phoneNumber} via ${LINE_LABEL[telephony.name]}`,
-      });
-      this.notify(`Calling ${this.call.companyName} for you.`);
-      try {
-        const { sid } = await telephony.startSupportCall(
-          { callId: this.id, to: this.call.phoneNumber },
-          {
-            onAnswered: () => void this.enqueue(() => this.onAnswered()),
-            onSpeech: (s) => this.onSpeech(s),
-            onAudio: (a) => this.onAudio(a),
-            onEnded: (reason, failed) => void this.enqueue(() => this.onSupportEnded(reason, failed)),
-          },
-        );
-        await store.sids(this.id, { supportCallSid: sid });
-      } catch (err) {
-        await this.fail(`Could not place the call: ${(err as Error).message}`);
-      }
+    return this.enqueue(() => this.dial());
+  }
+
+  private async dial() {
+    const { store, telephony } = this.deps;
+    const attempt = ++this.dialAttempt;
+    const redial = attempt > 1;
+    await this.setStatus('DIALING', { summary: `${redial ? 'Calling back' : 'Dialing'} ${this.call.companyName}` });
+    await store.agent(this.id, 'ACTING', `${redial ? 'Calling back' : 'Dialing'} ${this.call.companyName}…`);
+    await store.event(this.id, {
+      type: 'OUTBOUND_CALL_STARTED',
+      actor: 'TELEPHONY',
+      title: redial ? `Calling ${this.call.companyName} back` : `Calling ${this.call.companyName}`,
+      description: `${this.call.phoneNumber} via ${LINE_LABEL[telephony.name]}`,
+      dedupeKey: `dial-${attempt}`,
     });
+    if (!redial) this.notify(`Calling ${this.call.companyName} for you.`);
+    // Callbacks from an earlier, dropped attempt are ignored.
+    const current = () => attempt === this.dialAttempt;
+    try {
+      const { sid } = await telephony.startSupportCall(
+        { callId: this.id, to: this.call.phoneNumber },
+        {
+          onAnswered: () => current() && void this.enqueue(() => this.onAnswered()),
+          onSpeech: (s) => current() && this.onSpeech(s),
+          onAudio: (a) => current() && this.onAudio(a),
+          onEnded: (reason, failed) => {
+            if (!current()) return;
+            // Hear out the last words (e.g. "...we're closed. Goodbye.") before reacting to the hang-up.
+            clearTimeout(this.flushTimer);
+            this.flush();
+            void this.enqueue(() => this.onSupportEnded(reason, failed));
+          },
+        },
+      );
+      await store.sids(this.id, { supportCallSid: sid });
+    } catch (err) {
+      await this.fail(`Could not place the call: ${(err as Error).message}`);
+    }
   }
 
   cancel() {
@@ -158,7 +181,11 @@ export class CallRunner {
     this.buffer.push(segment.text);
     this.bufferConfidence.push(segment.confidence);
     clearTimeout(this.flushTimer);
-    this.flushTimer = setTimeout(() => this.flush(), this.deps.settings.utteranceGapMs);
+    // Let them finish the menu: options are read with pauses between them, so after an
+    // option (and no "to hear these again"-style closer) give it longer before acting.
+    const { utteranceGapMs, menuGapMs } = this.deps.settings;
+    const midMenu = MENU_LINE.test(segment.text) && !MENU_CLOSER.test(segment.text);
+    this.flushTimer = setTimeout(() => this.flush(), midMenu ? (menuGapMs ?? utteranceGapMs * 2.5) : utteranceGapMs);
   }
 
   private flush() {
@@ -182,6 +209,7 @@ export class CallRunner {
   private async handleUtterance(text: string, sttConfidence: number) {
     const { store, agent, settings } = this.deps;
     if (this.phase === 'done' || this.phase === 'connected') return;
+    this.lastHeard = text;
 
     const onHold = this.phase === 'hold';
     const heuristic = scoreHumanLikelihood(text, {
@@ -307,7 +335,18 @@ export class CallRunner {
     if (seen >= MAX_SAME_MENU) return this.fail('IVR loop detected — the same menu kept repeating.');
     if (++this.keyPresses > settings.maxKeyPresses) return this.fail('Too many menu levels without reaching a person.');
 
-    const label = capitalize(menu.find((o) => o.key === decision.value)?.label ?? `option ${decision.value}`);
+    const rawLabel = menu.find((o) => o.key === decision.value)?.label ?? '';
+    if (rawLabel && isConsequentialOption(rawLabel)) {
+      // Hard stop regardless of what the reasoning engine decided: never buy, pay or cancel on your behalf.
+      await store.event(this.id, {
+        type: 'LOW_CONFIDENCE',
+        actor: 'AI',
+        title: `Refused “${truncate(rawLabel, 60)}”`,
+        description: 'That option would buy, pay or cancel something. HoldLess never does that for you.',
+      });
+      return this.resumeListening();
+    }
+    const label = capitalize(rawLabel || `option ${decision.value}`);
     this.lowConfidence = 0;
     this.lastMenuLabel = label;
 
@@ -341,6 +380,7 @@ export class CallRunner {
       status: 'EXECUTED',
     });
     await store.event(this.id, { type: 'DTMF_SENT', actor: 'AI', title: `Pressed ${decision.value}`, description: label });
+    if (this.phase === 'hold') return this.resumeListening();
     this.notify(`Selected ${label} in the ${this.call.companyName} menu.`);
     await this.setStatus('NAVIGATING_MENU', { menuContext: label, summary: `Selected ${label}` });
     await store.agent(this.id, 'LISTENING', 'Listening for the next prompt…');
@@ -359,6 +399,7 @@ export class CallRunner {
       status: 'EXECUTED',
     });
     await store.event(this.id, { type: 'SPOKE', actor: 'AI', title: `Said “${decision.value}”`, description: decision.explanation });
+    if (this.phase === 'hold') return this.resumeListening();
     await this.setStatus('LISTENING');
     await store.agent(this.id, 'LISTENING', 'Listening…');
   }
@@ -514,7 +555,36 @@ export class CallRunner {
       this.deps.onFinished?.(this.id);
       return;
     }
-    const msg = failed ? describeFailure(reason) : `${this.call.companyName} disconnected the call.`;
+    const lastWords = this.lastHeard;
+    if (CLOSED_HINT.test(lastWords)) return this.fail(`${this.call.companyName} is closed right now: “${truncate(lastWords, 140)}”`);
+    if (VERIFY_HINT.test(lastWords) && /goodbye|can'?t continue/i.test(lastWords)) {
+      return this.fail(`${this.call.companyName} hung up because it needed verification only you can give.`);
+    }
+    const redialable = reason === 'dropped' || reason === 'busy' || reason === 'no-answer' || !failed;
+    if ((this.phase === 'ivr' || this.phase === 'hold' || this.phase === 'dialing') && redialable && this.redials < MAX_REDIALS) {
+      this.redials++;
+      const why = reason === 'dropped' ? 'The call dropped' : reason === 'busy' ? 'The line was busy' : `${this.call.companyName} hung up`;
+      await this.deps.store.event(this.id, {
+        type: 'INFO',
+        actor: 'AI',
+        title: `${why} — calling back`,
+        description: lastWords ? `Last heard: “${truncate(lastWords, 120)}”` : '',
+        dedupeKey: `redial-${this.redials}`,
+      });
+      this.phase = 'dialing';
+      clearTimeout(this.holdTimer);
+      this.menuCounts.clear();
+      this.keyPresses = 0;
+      this.lowConfidence = 0;
+      this.humanConfidence = 0;
+      this.sawMusic = false;
+      this.lastHeard = '';
+      this.history.push({ heard: `(${why.toLowerCase()})`, action: 'Called back' });
+      await sleep(reason === 'busy' ? 3000 : 1500);
+      return this.dial();
+    }
+    const base = failed ? describeFailure(reason) : reason === 'dropped' ? 'The call dropped.' : `${this.call.companyName} disconnected the call.`;
+    const msg = this.redials >= MAX_REDIALS ? `${base} Gave up after calling back ${this.redials} times.` : base;
     await this.fail(msg);
   }
 
@@ -547,6 +617,10 @@ function describeFailure(reason: string): string {
     default:
       return `The call could not be completed (${reason}).`;
   }
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function truncate(s: string, n: number) {

@@ -41,6 +41,17 @@ export const config = {
     validateSignatures: bool('TWILIO_VALIDATE_SIGNATURES', false),
   },
 
+  mock: {
+    /** classic = fixed demo script · gentle / realistic / chaos = simulated contact center at that difficulty. */
+    scenario: (['classic', 'gentle', 'realistic', 'chaos'].includes(env('MOCK_SCENARIO')) ? env('MOCK_SCENARIO') : 'realistic') as
+      | 'classic'
+      | 'gentle'
+      | 'realistic'
+      | 'chaos',
+    /** Replays one specific simulated call (seed is logged for every call). Blank = new variant each call. */
+    seed: process.env.MOCK_SEED?.trim() ? Number(process.env.MOCK_SEED) : undefined,
+  },
+
   demo: {
     wolverineNumber: env('WOLVERINE_IVR_NUMBER'),
     repPhoneNumber: env('DEMO_REP_PHONE_NUMBER'),
@@ -83,6 +94,7 @@ export const config = {
     humanThreshold: num('HUMAN_CONFIDENCE_THRESHOLD', 0.8),
     possibleHumanThreshold: num('POSSIBLE_HUMAN_THRESHOLD', 0.5),
     utteranceGapMs: num('UTTERANCE_GAP_MS', demoMode ? 1100 : 1500),
+    menuGapMs: num('MENU_GAP_MS', demoMode ? 2600 : 3200),
     maxKeyPresses: num('MAX_KEY_PRESSES', 12),
     maxHoldMinutes: num('MAX_HOLD_MINUTES', demoMode ? 5 : 90),
     userAnswerTimeoutSeconds: num('USER_ANSWER_TIMEOUT_SECONDS', 30),

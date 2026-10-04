@@ -16,6 +16,8 @@ _Last updated: 2026-10-03_
 
 - **Browser agent (Amazon returns):** `support_task`/`task_event` tables + reducers, Playwright agent with a dedicated Chrome profile, sign-in handoff, approval gate, console at `localhost:4000/agent`. Verified end to end against a local Amazon stand-in and checked against real amazon.com's sign-in redirect.
 
+- **Simulated contact center (mock phone line):** seeded, goal-blind Wolverine Wireless line with menus, a speech-only assistant, offers, misroutes, drops, closures and decoys. The agent gained general skills (decline offers, speak, confirm, verification handoff, wrong-department escape, call-back after drops, bot vs. person, waiting out menus read in pieces). Randomized tests: realistic 36/36 connected, chaos 26/30, with zero harmful actions.
+
 ## Currently working
 - Reviewing backend architecture for Local Chrome Profile reuse & Email dispatch API.
 

@@ -20,6 +20,8 @@ export async function createTelephony(): Promise<TelephonyProvider> {
     new MockTelephony({
       holdSeconds: config.demo.holdSeconds,
       holdAnnouncementSeconds: config.demo.holdAnnouncementSeconds,
+      scenario: config.mock.scenario,
+      seed: config.mock.seed,
     });
 
   if (config.telephonyMode === 'twilio') {
@@ -37,6 +39,6 @@ export async function createTelephony(): Promise<TelephonyProvider> {
     );
     return new HybridTelephony(mock(), new TwilioTelephony(), config.demo.repPhoneNumber);
   }
-  log.warn('TELEPHONY_MODE=mock — calls are SIMULATED in-process against the Wolverine Wireless script');
+  log.warn(`TELEPHONY_MODE=mock — calls are SIMULATED in-process (scenario: ${config.mock.scenario}${config.mock.seed !== undefined ? `, seed ${config.mock.seed}` : ''})`);
   return mock();
 }

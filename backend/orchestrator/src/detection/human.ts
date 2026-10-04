@@ -20,6 +20,7 @@ export interface HumanScore {
 const POSITIVE: Array<[RegExp, number, string]> = [
   [/\bmy name(?:'s| is)\b|\byou(?:'re| are) (?:speaking|talking) (?:with|to)\b/i, 0.35, 'introduced themselves'],
   [/\b[Tt]his is [A-Z][a-z]+(?: with| from| at| in|,|\.)/, 0.3, 'introduced themselves'],
+  [/\bI'?m [A-Z][a-z]+[.,!]/, 0.3, 'introduced themselves'],
   [/\bhow (?:can|may|could) i (?:help|assist)\b|\bwhat can i (?:do|help)\b|\bhow can we help\b/i, 0.35, 'asked how they can help'],
   [/\b(?:thanks|thank you) (?:so much )?for (?:holding|waiting)\b/i, 0.15, 'thanked us for holding'],
   [/^\s*(?:hi|hello|hey|good (?:morning|afternoon|evening))\b/i, 0.15, 'conversational greeting'],
@@ -36,6 +37,9 @@ const AUTOMATED: Array<[RegExp, string]> = [
   [/\b(?:may|might|will) be (?:monitored|recorded)\b/i, 'recording disclaimer'],
   [/\bestimated (?:wait|hold) time\b/i, 'wait-time announcement'],
   [/\bfor (?:english|spanish|español)\b/i, 'language menu'],
+  [/\b(?:virtual|digital|automated|ai|voice) (?:assistant|agent)\b|\bthis is an automated\b|\bI'?m an? (?:automated|virtual|digital)\b/i, 'self-described assistant'],
+  [/\bwhile you wait\b|\bkeep your place in line\b/i, 'queue assistant'],
+  [/\byou can say (?:things like|something like)\b|\bin a few words\b/i, 'speech menu'],
 ];
 
 export function scoreHumanLikelihood(text: string, ctx: HumanContext): HumanScore {

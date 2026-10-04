@@ -113,9 +113,25 @@ See [`.env.example`](.env.example). Summary:
 | `PHOTON_PROJECT_ID`, `PHOTON_PROJECT_SECRET` | iMessage via Photon Spectrum (blank = off) |
 | `HUMAN_CONFIDENCE_THRESHOLD`, `POSSIBLE_HUMAN_THRESHOLD` | Handoff thresholds (0.8 / 0.5) |
 
-## Mock mode
+## Mock mode: a simulated contact center
 
-`TELEPHONY_MODE=mock` (the default) runs the Wolverine Wireless phone tree in-process, using the same script as the real Twilio IVR (`packages/shared/src/wolverine.ts`). It emits transcripts sentence by sentence, as streaming STT would, plus hold music signals, announcements, the representative's greeting, and a simulated user answering. Everything else is real: SpacetimeDB, the CallRunner, validation, detection and the dashboard. With no `GEMINI_API_KEY` the deterministic rule-based agent makes the decisions, and the header says so. The demo takes about 30 seconds end to end.
+`TELEPHONY_MODE=mock` needs no keys and places no real calls. The other end of the line is a **simulated Wolverine Wireless contact center** (`backend/orchestrator/src/telephony/sim/`). It never sees the caller's goal and isn't scripted around the agent. Every call rolls its own variant from a seed:
+
+- language menus, keypad menus in shuffled order with vague wording ("questions about your statement or recent activity")
+- a virtual assistant that only understands speech ("in a few words, tell me why you're calling"), mishears sometimes, and asks "is that right?"
+- account-number checks (skippable or "say I don't know"), and in chaos mode, security-number checks that must go to you
+- deflections ("press 1 for a text with a link"), upsells, callback offers, surveys
+- misroutes to the wrong department, random hold lengths, dropped calls, busy signals, after-hours closures
+- a named virtual assistant on hold ("I'm Ava…") that must not be mistaken for a person, and representatives who open hesitantly
+
+The agent has to work it out with general caller habits: decline offers, speak when only speech works, confirm or deny, skip or hand off verification, escape the wrong department, call back after a drop, and never bridge a bot. With `GEMINI_API_KEY` set, Gemini makes these calls. Without it, a deterministic rule-based agent does.
+
+| Setting | Values |
+|---|---|
+| `MOCK_SCENARIO` | `realistic` (default) · `gentle` (shorter, calmer stage run) · `chaos` (closures, security checks, frequent drops) · `classic` (the old fixed script) |
+| `MOCK_SEED` | Replays one exact call. Every call logs its seed in the orchestrator output. |
+
+`backend/orchestrator/test/sim.test.ts` plays 66 randomized calls (36 realistic, 30 chaos) and grades the agent. It checks whether the call reached a person in the right department, and that the agent never bought the upsell, took a callback or text link, typed security digits, or bridged a bot. Every failure must be explained.
 
 ## Hybrid demo (free Twilio trial, one number)
 
