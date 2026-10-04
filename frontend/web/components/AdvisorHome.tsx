@@ -139,7 +139,7 @@ export function AdvisorHome({ onSelectAction }: AdvisorHomeProps) {
   return (
     <div
       className={`relative isolate mx-auto flex w-full max-w-3xl flex-col gap-8 transition-all ${
-        selectedPreset ? 'pt-6' : 'min-h-[75dvh] justify-center'
+        selectedPreset ? 'pt-6 pb-20' : 'flex-1 justify-center pb-10'
       }`}
     >
       {/* Soft glow behind the prompt, Gemini-style */}

@@ -8,6 +8,8 @@ import { EmailTicketView } from '@/components/EmailTicketView';
 import { NewCallForm } from '@/components/NewCallForm';
 import { CallList } from '@/components/CallList';
 import { StatusChips } from '@/components/Header';
+import { WebSearch } from '@/components/WebSearch';
+import Link from 'next/link';
 import { useTable } from 'spacetimedb/react';
 import { tables } from '@holdless/db';
 import { isTerminal, type CallStatus } from '@holdless/shared';
@@ -33,17 +35,23 @@ export default function Home() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col md:flex-row">
+    <div className="flex min-h-dvh flex-col">
       <OmniTabs
         activeTab={activeTab}
         onTabChange={setActiveTab}
         activeCallCount={activeCallCount}
       />
 
-      <main className="relative min-w-0 flex-1 px-4 pb-20 sm:px-6">
-        <div className="flex justify-end py-4">
-          <StatusChips />
-        </div>
+      <main className="relative flex min-w-0 flex-1 flex-col px-4 pb-20 sm:px-6 md:pl-32">
+        <header className="flex flex-wrap items-center justify-between gap-3 py-4 md:-ml-26">
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/" className="text-[1.35rem] font-semibold tracking-[-0.03em] text-ink">
+              Hold<span className="text-ai">Less</span>
+            </Link>
+            <StatusChips />
+          </div>
+          <WebSearch />
+        </header>
         {activeTab === 'advisor' && (
           <AdvisorHome onSelectAction={handleSelectAction} />
         )}
