@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowRight, Globe, Mail, PhoneCall, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ArrowRight, ArrowUp, Globe, Mail, PhoneCall, Sparkles, CheckCircle2, ShieldAlert } from 'lucide-react';
 import type { TabId } from './OmniTabs';
 
 export interface TriagePreset {
@@ -106,16 +106,12 @@ interface AdvisorHomeProps {
 }
 
 export function AdvisorHome({ onSelectAction }: AdvisorHomeProps) {
-  const [query, setQuery] = useState(PRESETS[0]!.query);
-  const [selectedPreset, setSelectedPreset] = useState<TriagePreset>(PRESETS[0]!);
+  const [query, setQuery] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState<TriagePreset | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
-  const handleSelectPreset = (p: TriagePreset) => {
-    setSelectedPreset(p);
-    setQuery(p.query);
-  };
-
   const handleAnalyze = () => {
+    if (!query.trim()) return;
     setAnalyzing(true);
     setTimeout(() => {
       setAnalyzing(false);
@@ -134,73 +130,71 @@ export function AdvisorHome({ onSelectAction }: AdvisorHomeProps) {
   };
 
   const ChannelIcon =
-    selectedPreset.recommendedChannel === 'browser'
+    selectedPreset?.recommendedChannel === 'browser'
       ? Globe
-      : selectedPreset.recommendedChannel === 'email'
+      : selectedPreset?.recommendedChannel === 'email'
         ? Mail
         : PhoneCall;
 
   return (
-    <div className="flex flex-col gap-8">
-      {/* Hero Section */}
-      <section className="rounded-3xl border border-line bg-surface p-6 shadow-card sm:p-8">
-        <div className="flex items-center gap-2.5 text-xs font-semibold uppercase tracking-wider text-ai">
-          <Sparkles className="size-4" />
-          <span>Gemini Autonomous Concierge</span>
-        </div>
-        <h1 className="mt-3 text-2xl font-bold tracking-tight text-ink sm:text-3xl text-balance">
-          What customer service problem do you want resolved?
+    <div
+      className={`relative isolate mx-auto flex w-full max-w-3xl flex-col gap-8 transition-all ${
+        selectedPreset ? 'pt-6' : 'min-h-[75dvh] justify-center'
+      }`}
+    >
+      {/* Soft glow behind the prompt, Gemini-style */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-1/4 -z-10 h-[480px] bg-[radial-gradient(ellipse_at_center,color-mix(in_oklch,var(--ai)_18%,transparent),transparent_65%)]"
+      />
+
+      <section className="flex flex-col items-center gap-8">
+        <h1 className="text-center text-3xl font-normal tracking-tight text-ink text-balance sm:text-5xl">
+          What should we resolve for you?
         </h1>
-        <p className="mt-2 text-[15px] text-ink-2 max-w-2xl text-balance">
-          Explain your goal in plain words. Our AI evaluates company policies, detects whether in-app
-          wizards, formal email tickets, or phone queues are required, and executes on your behalf.
-        </p>
 
-        {/* Omnibar Input */}
-        <div className="mt-6 flex flex-col gap-3">
-          <div className="relative flex flex-col rounded-2xl border border-line-strong bg-bg p-2 transition-within focus-within:border-ai focus-within:ring-3 focus-within:ring-ai/15">
-            <textarea
-              rows={3}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. Return broken coffee maker on Amazon, dispute flight delay with Delta, or dispute charge on Wolverine Wireless..."
-              className="w-full resize-none bg-transparent p-2 text-[15px] text-ink placeholder:text-muted/80 focus:outline-none"
-            />
-            <div className="flex items-center justify-between border-t border-line/60 pt-2 px-1">
-              <span className="text-xs text-muted">Press analyze to generate optimal resolution strategy</span>
-              <button
-                type="button"
-                onClick={handleAnalyze}
-                disabled={analyzing || !query.trim()}
-                className="inline-flex items-center gap-2 rounded-xl bg-ink px-4 py-2 text-xs font-semibold text-bg transition hover:bg-ink/90 disabled:opacity-50"
-              >
-                <Sparkles className="size-3.5" />
-                {analyzing ? 'Evaluating policies…' : 'Analyze & Recommend'}
-              </button>
-            </div>
-          </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleAnalyze();
+          }}
+          className="flex w-full items-end gap-2 rounded-[28px] border border-line bg-surface py-2 pl-5 pr-2 shadow-card transition focus-within:border-ai/40"
+        >
+          <textarea
+            rows={1}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleAnalyze();
+              }
+            }}
+            aria-label="Describe your customer service problem"
+            placeholder="Ask HoldLess to return, dispute, or call…"
+            className="field-sizing-content max-h-48 min-h-11 w-full min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[16px] text-ink placeholder:text-muted focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={analyzing || !query.trim()}
+            aria-label="Analyze"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-ink text-bg transition hover:bg-ink/85 disabled:bg-sunken disabled:text-muted"
+          >
+            {analyzing ? <Sparkles className="size-4 breathe" /> : <ArrowUp className="size-5" />}
+          </button>
+        </form>
 
-          {/* Quick preset chips */}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <span className="text-xs font-medium text-muted">Try presets:</span>
-            {PRESETS.map((p) => {
-              const active = selectedPreset.id === p.id;
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => handleSelectPreset(p)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                    active
-                      ? 'border-ai bg-ai-soft text-ai font-semibold'
-                      : 'border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink'
-                  }`}
-                >
-                  {p.chipLabel}
-                </button>
-              );
-            })}
-          </div>
+        <div className="flex flex-wrap justify-center gap-2">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setQuery(p.query)}
+              className="rounded-full border border-line bg-surface/70 px-3.5 py-1.5 text-[13px] text-ink-2 transition hover:border-line-strong hover:text-ink"
+            >
+              {p.chipLabel}
+            </button>
+          ))}
         </div>
       </section>
 

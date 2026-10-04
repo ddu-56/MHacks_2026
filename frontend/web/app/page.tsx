@@ -7,6 +7,7 @@ import { BrowserAgentView } from '@/components/BrowserAgentView';
 import { EmailTicketView } from '@/components/EmailTicketView';
 import { NewCallForm } from '@/components/NewCallForm';
 import { CallList } from '@/components/CallList';
+import { StatusChips } from '@/components/Header';
 import { useTable } from 'spacetimedb/react';
 import { tables } from '@holdless/db';
 import { isTerminal, type CallStatus } from '@holdless/shared';
@@ -32,14 +33,17 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-h-dvh flex-col md:flex-row">
       <OmniTabs
         activeTab={activeTab}
         onTabChange={setActiveTab}
         activeCallCount={activeCallCount}
       />
 
-      <div className="w-full">
+      <main className="relative min-w-0 flex-1 px-4 pb-20 sm:px-6">
+        <div className="flex justify-end py-4">
+          <StatusChips />
+        </div>
         {activeTab === 'advisor' && (
           <AdvisorHome onSelectAction={handleSelectAction} />
         )}
@@ -66,7 +70,7 @@ export default function Home() {
             <CallList />
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

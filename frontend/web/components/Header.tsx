@@ -16,7 +16,7 @@ export function useOrchestrator() {
   return { orch, online };
 }
 
-export function Header() {
+export function StatusChips() {
   const { isActive, connectionError } = useSpacetimeDB();
   const { orch, online } = useOrchestrator();
 
@@ -46,6 +46,23 @@ export function Header() {
   }
 
   return (
+    <ul className="flex flex-wrap items-center gap-2" aria-label="System status">
+      {chips.map((c) => (
+        <li
+          key={c.label}
+          title={c.title}
+          className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-2"
+        >
+          <span className={`size-1.5 rounded-full ${c.ok ? 'bg-human' : 'bg-danger breathe'}`} aria-hidden />
+          {c.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function Header() {
+  return (
     <header className="mx-auto flex w-full max-w-[1240px] flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 pb-8 pt-6 sm:px-6">
       <Link href="/" className="group flex items-baseline gap-3">
         <span className="text-[1.35rem] font-semibold tracking-[-0.03em] text-ink">
@@ -53,18 +70,7 @@ export function Header() {
         </span>
         <span className="hidden text-sm text-muted sm:inline">AI waits on customer service so you don&apos;t have to.</span>
       </Link>
-      <ul className="flex flex-wrap items-center gap-2" aria-label="System status">
-        {chips.map((c) => (
-          <li
-            key={c.label}
-            title={c.title}
-            className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-2"
-          >
-            <span className={`size-1.5 rounded-full ${c.ok ? 'bg-human' : 'bg-danger breathe'}`} aria-hidden />
-            {c.label}
-          </li>
-        ))}
-      </ul>
+      <StatusChips />
     </header>
   );
 }
