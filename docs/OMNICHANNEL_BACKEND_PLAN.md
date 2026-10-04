@@ -1,239 +1,103 @@
-# Omnichannel Backend Architecture & Implementation Plan
+# Omnichannel Backend Plan
 
-_Drafted: 2026-10-03 for MHacks 2026_
+_Revised: 2026-10-03 for MHacks 2026. Replaces the first draft (Rust schema, Chrome-profile reuse on Amazon, emails to real company inboxes)._
 
-This document outlines the backend design for expanding **HoldLess** into an omnichannel customer advocate. It covers:
-1. **Gemini Triage & Channel Recommender**
-2. **Web / Browser Agent using Local Chrome Profile Reuse (Playwright)**
-3. **Real Email / Ticket Dispatching to Real Inboxes (Resend / SMTP)**
-4. **SpacetimeDB Unified Event Schema**
+HoldLess expands from "wait on hold for me" to "get this resolved for me": Gemini reads a complaint, picks the best channel (phone, email or browser), and the matching agent does the work. The **phone flow stays the centerpiece of the demo**. Email and browser add breadth without adding risk.
 
----
+## Ground rules
 
-## 1. Gemini Triage & Channel Recommender
+1. **Nothing contacts a real company.** Email goes only to our own inbox (`DEMO_INBOX_EMAIL`). The browser agent only drives a fake Wolverine Wireless portal. The phone flow already uses the fake Wolverine Wireless line.
+2. **Every request is a row in SpacetimeDB.** The browser requests, the orchestrator does the work, and the dashboard subscribes, exactly like calls. That's the sponsor story: one live state for every channel.
+3. **Simulated means labeled.** Anything not real shows a visible "Simulated" badge.
+4. **The model never chooses a destination.** Phone numbers, email addresses and URLs come from a directory (`COMPANY_DIRECTORY` in `packages/shared`) or from the user, never from Gemini.
+5. **API keys live in the orchestrator only.** No side effects in Next.js API routes.
 
-When the user enters a natural language complaint or customer service request on the home screen, Gemini categorizes the task and determines the optimal resolution channel.
+## Channel selection
 
-### System Prompt & Reasoning Logic
-```typescript
-export interface TriageResult {
-  provider: string;               // e.g. "Amazon", "Delta Air Lines", "Xfinity", "Anker"
-  category: 'refund' | 'dispute' | 'support' | 'cancellation' | 'outage';
-  summary: string;
-  recommendedChannel: 'browser' | 'email' | 'phone';
-  confidence: number;            // 0.0 - 1.0
-  reasoning: string;             // User-facing explanation
-  policyContext?: string;        // e.g. "Amazon 30-day return policy; non-returnables require damage photo"
-  extractedDetails: {
-    orderNumber?: string;
-    accountNumber?: string;
-    amount?: number;
-    urgency: 'low' | 'medium' | 'high';
-  };
-  suggestedAction: {
-    title: string;
-    buttonLabel: string;
-    prefilledTarget: string;     // URL, email, or phone
-    prefilledPayload: Record<string, any>;
-  };
-}
-```
-
-### Channel Selection Matrix
-* **`browser` (Web / In-App Agent)**:
-  * Selected when the service explicitly prohibits email tickets and only allows self-service workflows through an in-app portal (e.g. Amazon returns, Uber ride disputes, DoorDash missing items).
-* **`email` (Formal Ticket Dispatch)**:
-  * Selected when written proof, serial numbers, photos, legal consumer rights, or an audit paper trail is necessary (e.g. Airline EU261 / DOT delay compensation, hardware warranty claims, merchant disputes, billing adjustments).
-* **`phone` (Voice IVR Runner)**:
-  * Selected when an urgent active outage exists, the company only accepts live verbal authorization, or voice queue wait time is the only path (e.g. ISP outages, banking fraud desk, Wolverine Wireless).
+| Channel | When Gemini picks it | Demo target |
+|---|---|---|
+| `phone` | Urgent outages, fraud, or companies that only resolve things by voice | Wolverine Wireless IVR (existing) |
+| `email` | Written proof or an audit trail matters: billing adjustments, warranty claims, delay compensation | Your own inbox via Resend |
+| `browser` | Self-service-only portals: returns, ride/delivery disputes | Fake Wolverine Wireless account portal |
 
 ---
 
-## 2. Web / Browser Agent: Local Chrome Profile Reuse
+## Phase 0: Align what exists (~20 min, do first)
 
-### Why Local Chrome Profile Reuse?
-Major platforms (Amazon, Walmart, Apple) deploy sophisticated anti-bot fingerprinting and mandate 2-Factor Authentication (SMS OTP or app notification) for fresh browser logins. 
+- **Label the browser flow as simulated.** In `BrowserAgentView.tsx` and `AdvisorHome.tsx`, remove the wording "attaches to your existing Chrome profile", "bypassing 2FA/login" and "Return Successfully Initiated on Amazon". Add a "Simulated" badge, like the phone flow's "Simulated line".
+- Keep the current email safety behavior (`/api/email/dispatch` only sends to `DEMO_INBOX_EMAIL`) until Phase 2 replaces the route.
 
-By launching **Playwright** with the user's **existing local Chrome User Data Directory (`userDataDir`)**:
-1. The browser opens with the user's **existing authenticated sessions and active cookies**.
-2. **No login credentials or passwords are typed or stored**.
-3. **No 2FA prompts** appear because the device profile is already trusted by Amazon.
+## Phase 1: One task model for every channel (~1.5 h, backend)
 
-### Implementation Blueprint (Playwright)
+All in the TypeScript module at `backend/spacetimedb/src/index.ts`.
 
-```typescript
-// backend/orchestrator/src/browser/runner.ts
-import { chromium, type BrowserContext, type Page } from 'playwright';
-import path from 'node:path';
-import os from 'node:os';
+**Tables**
+- `support_task`: `id`, `userId`, `channel` (`phone | email | browser`), `provider`, `query`, `summary`, `status`, `explanation` (short and user-facing, no model reasoning), `confidence`, `linkedCallId` (phone tasks link to the existing `call_session`), `result` (short and non-sensitive, e.g. a return reference), `errorMessage`, `createdAt`, `updatedAt`, `endedAt`.
+- `task_event`: same shape as `call_event`, keyed by `taskId`, so the existing timeline component works for every channel.
+- `task_draft` (email only): `taskId`, `recipientName`, `recipientEmail` (shown in the email, never sent to), `subject`, `body`.
 
-export interface BrowserAgentOptions {
-  task: 'amazon_return' | 'portal_navigation';
-  itemQuery: string;
-  returnReason: string;
-  headless?: boolean;
-}
+**Status rules**, defined in `packages/shared` and enforced in the module like call transitions:
+- Email: `REQUESTED → TRIAGED → DRAFTED → APPROVED → SENDING → SENT`
+- Browser: `REQUESTED → TRIAGED → RUNNING → COMPLETED`
+- Phone: `REQUESTED → TRIAGED`, then the existing call takes over through `linkedCallId`
+- Any live status can move to `FAILED` or `CANCELLED`.
 
-export function getLocalChromeUserDataDir(): string {
-  const home = os.homedir();
-  if (process.platform === 'darwin') {
-    // macOS Chrome profile
-    return path.join(home, 'Library/Application Support/Google/Chrome');
-  } else if (process.platform === 'win32') {
-    return path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/User Data');
-  }
-  return path.join(home, '.config/google-chrome');
-}
+**Reducers**
+- Browser: `requestTask(query)`, `confirmChannel(taskId, channel)`, `approveTask(taskId, editedDraft)`, `cancelTask(taskId)`.
+- Orchestrator only: `recordTriage`, `saveDraft`, `updateTaskStatus`, `appendTaskEvent`, `completeTask`, `failTask`.
 
-export async function launchAuthenticatedBrowser(options: BrowserAgentOptions) {
-  const userDataDir = getLocalChromeUserDataDir();
-  
-  // Note: Chrome must either be closed or started with a separate debug profile
-  // or a temporary cloned session directory to avoid profile lock collisions.
-  const context: BrowserContext = await chromium.launchPersistentContext(userDataDir, {
-    channel: 'chrome',
-    headless: options.headless ?? false, // Headful mode is visually stunning for demo!
-    viewport: { width: 1280, height: 800 },
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--profile-directory=Default'
-    ],
-  });
+## Phase 2: Triage and email in the orchestrator (~1.5 h)
 
-  const page: Page = context.pages()[0] || await context.newPage();
-  
-  try {
-    // Step 1: Navigate to Orders
-    await page.goto('https://www.amazon.com/gp/css/order-history', { waitUntil: 'domcontentloaded' });
-    
-    // Step 2: Gemini DOM Analyzer or Selector Engine
-    // The runner captures a DOM snapshot or screenshot and asks Gemini for the exact selector
-    // to locate the target order and click "Return or replace items".
-    
-    // Step 3: Fill Return Reason
-    // Auto-selects "Defective / Does not work" -> enters explanation -> selects UPS Dropoff.
-    
-    // Step 4: Extract Return Confirmation & QR code
-    const qrElement = await page.waitForSelector('img[alt*="Return QR"], .return-qr-code', { timeout: 15000 });
-    const qrBuffer = await qrElement.screenshot();
-    
-    return {
-      status: 'SUCCESS',
-      qrCodeBase64: qrBuffer.toString('base64'),
-    };
-  } finally {
-    await context.close();
-  }
-}
-```
+**Triage**
+- The orchestrator subscribes to `REQUESTED` tasks and runs Gemini through the existing client in `backend/orchestrator/src/ai/`, which already picks the model and falls back to rules.
+- The output is checked against a shared zod schema, like `validateDecision` on the phone side: a fixed category list, a channel from the list, confidence 0–1, an explanation of at most 240 characters, and prefill fields limited to what the user actually wrote.
+- Below about 0.7 confidence, the UI shows "Confirm channel" instead of starting automatically.
+- The keyword presets in `AdvisorHome.tsx` move into a rule-based triage fallback, so the app works without a key and still goes through SpacetimeDB.
+- Policy notes are either grounded with Google Search (show the sources) or labeled "suggested". Never present them as fact.
 
-### Safety & Sandboxing Precautions
-* **Cloned Session Scratchpad**: Instead of locking the primary Chrome profile directly (which causes `Profile in use` errors if Chrome is open), the runner clones the cookie jar and local storage into a temporary directory in `scratch/`.
-* **Zero Credential Retention**: Passwords and credit card details are never scraped or stored.
+**Phone**
+- A triaged phone task creates a call through the existing `requestCall` path and stores `linkedCallId`. No changes to the call engine.
 
----
+**Email**
+- Gemini drafts the letter into `task_draft`. The user edits it and presses **Approve**.
+- The orchestrator sends it through Resend to `DEMO_INBOX_EMAIL`, using the task id as an idempotency key so retries never double-send.
+- The status moves to `SENT` with the message id. Stage moment: the email arriving on your phone, live.
+- Without `RESEND_API_KEY`, the send is simulated and labeled.
 
-## 3. Real Email / Ticket Dispatcher (To Real Inboxes)
+**Cleanup**
+- Delete `frontend/web/app/api/triage` and `frontend/web/app/api/email/dispatch`.
+- `/api/search` can stay: it only reads and keeps no state. Add a simple rate limit if the app is ever exposed beyond localhost.
 
-For merchant disputes, warranty claims, and formal refund requests, the system drafts a legally grounded, professional escalation letter and dispatches it directly to a real recipient email.
+## Phase 3: Real browser agent, fake company (optional, time-boxed to 2 h)
 
-### Recommended Provider: Resend
-* **Why Resend?**
-  * Instant setup: zero SMTP port blocking, fast delivery in <300ms.
-  * Native REST API: can be dispatched directly with `fetch('https://api.resend.com/emails')`.
-  * Free tier allows sending emails to your verified account/team email immediately for real-time inbox testing.
-* **SMTP Fallback**:
-  * If preferred, standard Nodemailer using standard Gmail / Outlook SMTP app passwords can be used.
+- Serve a small **Wolverine Wireless account portal** with no login: an orders list, a return wizard (item, reason, drop-off method) and a confirmation page with a return code.
+- A visible Playwright Chrome window, with **its own temporary profile**, completes the return using fixed steps. Gemini only picks which order matches the request, from the known list, and its pick is validated before use.
+- Each step becomes a `task_event`, and the return code is stored as the task `result`.
+- If time runs out, keep the labeled simulation; the demo doesn't depend on this.
 
-### Dispatch Payload & Gemini Letter Generator
+## Phase 4: Tests and rehearsal (~45 min)
 
-```typescript
-// backend/orchestrator/src/email/dispatcher.ts
-export interface EmailTicketPayload {
-  recipientEmail: string;       // e.g. target support inbox or the user's email for testing
-  recipientName: string;        // e.g. "Amazon Customer Relations" or "Delta Claims"
-  senderName: string;
-  senderEmail: string;
-  subject: string;
-  orderReference: string;
-  bodyMarkdown: string;
-}
+- Tests:
+  - triage validation, including malformed or low-confidence output
+  - per-channel status rules
+  - email task end to end with Resend stubbed, including the idempotency key
+  - authorization: a browser can't move a task forward
+  - the browser runner against the fake portal, if built
+- Stage script: one request → Gemini picks a channel → **live phone call (main event)** → one email arriving in your inbox. Run `pnpm stdb:reset` before going on stage.
 
-export async function dispatchEmailTicket(payload: EmailTicketPayload, resendApiKey: string) {
-  const response = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${resendApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: 'HoldLess Concierge <onboarding@resend.dev>',
-      to: [payload.recipientEmail],
-      reply_to: payload.senderEmail,
-      subject: payload.subject,
-      text: payload.bodyMarkdown,
-      html: renderEmailHtml(payload),
-    }),
-  });
+## Who does what
 
-  const data = await response.json();
-  return {
-    success: response.ok,
-    messageId: data.id,
-    sentAt: new Date().toISOString(),
-  };
-}
-```
+- **Frontend:** Phase 0 labels. Switch the tabs from local state and API responses to `useTable` subscriptions on `support_task`, `task_event` and `task_draft`. Add the Confirm channel and Approve buttons.
+- **Backend:** Phases 1–2, then Phase 3 if there's time.
 
----
+## Not doing (and why)
 
-## 4. SpacetimeDB Unified Event Schema
+| Idea from the first draft | Why it's out |
+|---|---|
+| Reusing the user's local Chrome profile | Chrome ≥136 ignores the automation (remote-debugging) switches on the default profile ([Chromium](https://issues.chromium.org/issues/417456892)), and a cloned profile can't read the original's encrypted cookies |
+| Automating real Amazon with bot-detection evasion | Puts the user's real account at risk under the site's terms, takes irreversible actions, and contradicts the spec ("avoid real companies and real consumer disputes") |
+| Emailing real company inboxes | Resend's test sender only delivers to the account owner; LLM-written legal claims need review; not appropriate for a demo |
+| Rust table definitions | The module is TypeScript |
+| Side-effect API routes in Next.js | Keeps state outside SpacetimeDB and spreads API keys across services |
 
-To keep the UI real-time and reactive without polling, SpacetimeDB will track both phone calls and digital tickets/agent sessions.
-
-```rust
-// Proposed SpacetimeDB table additions:
-
-// 1. Dispatched support tickets
-#[spacetimedb::table(name = support_ticket, public)]
-pub struct SupportTicket {
-  #[primary_key]
-  pub id: u64,
-  pub user_id: Identity,
-  pub provider_name: String,
-  pub recipient_email: String,
-  pub subject: String,
-  pub status: String,           // DRAFT, DISPATCHED, DELIVERED, REPLIED
-  pub message_id: Option<String>,
-  pub created_at: Timestamp,
-  pub delivered_at: Option<Timestamp>,
-}
-
-// 2. Browser automation sessions
-#[spacetimedb::table(name = browser_session, public)]
-pub struct BrowserSession {
-  #[primary_key]
-  pub id: u64,
-  pub user_id: Identity,
-  pub service: String,          // "Amazon", "Xfinity", etc.
-  pub status: String,           // INITIALIZING, NAVIGATING, SELECTING_ITEM, COMPLETED, FAILED
-  pub current_step: String,
-  pub result_payload: Option<String>, // e.g. QR code URL or return reference ID
-  pub started_at: Timestamp,
-  pub completed_at: Option<Timestamp>,
-}
-```
-
----
-
-## 5. Phased Backend Rollout
-
-1. **Step 1 (Now)**:
-   * Build the **Frontend Tabbed Interface** & **Advisor Home** so the UX is clear, interactive, and functional.
-   * Provide built-in simulation mocks for email dispatch and browser returns to verify all user flows.
-2. **Step 2**:
-   * Add `/api/triage` route calling `@google/genai` with structured output schema.
-3. **Step 3**:
-   * Add `/api/email/dispatch` connecting to Resend or SMTP.
-4. **Step 4**:
-   * Wire Playwright with local Chrome profile cloning for headful Amazon return demonstration.
+**Estimate:** about 4–5 h for Phases 0–2 and 4, plus up to 2 h for Phase 3.
