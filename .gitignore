@@ -7,3 +7,9 @@ node_modules
 dist
 backend/orchestrator/.data
 *.tsbuildinfo
+
+# personal ideation notes
+AGENT_IDEAS.md
+IDEAS.md
+NICHE_IDEAS.md
+SUSTAINABILITY_PICKS.md

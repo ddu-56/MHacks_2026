@@ -21,16 +21,34 @@ interface Fields {
 
 const EMPTY: Fields = { companyName: '', phoneNumber: '', userGoal: '', userPhoneNumber: '', userContext: '' };
 
-export function NewCallForm() {
+export function NewCallForm({ initialData }: { initialData?: Partial<Fields> } = {}) {
   const router = useRouter();
   const { isActive, identity } = useSpacetimeDB();
   const { orch, online } = useOrchestrator();
   const requestCall = useReducer(reducers.requestCall);
-  const [fields, setFields] = useState<Fields>(EMPTY);
+  const [fields, setFields] = useState<Fields>(() => ({
+    companyName: initialData?.companyName ?? '',
+    phoneNumber: initialData?.phoneNumber ?? '',
+    userGoal: initialData?.userGoal ?? '',
+    userPhoneNumber: '',
+    userContext: initialData?.userContext ?? '',
+  }));
   const [ask, setAsk] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState<'form' | 'demo' | null>(null);
   const pendingSince = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (initialData) {
+      setFields((f) => ({
+        ...f,
+        companyName: initialData.companyName ?? f.companyName,
+        phoneNumber: initialData.phoneNumber ?? f.phoneNumber,
+        userGoal: initialData.userGoal ?? f.userGoal,
+        userContext: initialData.userContext ?? f.userContext,
+      }));
+    }
+  }, [initialData]);
 
   useEffect(() => {
     try {
