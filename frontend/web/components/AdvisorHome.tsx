@@ -110,23 +110,35 @@ export function AdvisorHome({ onSelectAction }: AdvisorHomeProps) {
   const [selectedPreset, setSelectedPreset] = useState<TriagePreset | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
 
-  const handleAnalyze = () => {
-    if (!query.trim()) return;
+  const handleAnalyze = async () => {
+    if (!query.trim() || analyzing) return;
     setAnalyzing(true);
-    setTimeout(() => {
-      setAnalyzing(false);
-      // Find matching preset or default to first
-      const lower = query.toLowerCase();
-      if (lower.includes('amazon') || lower.includes('return') || lower.includes('mouse')) {
-        setSelectedPreset(PRESETS[0]!);
-      } else if (lower.includes('delta') || lower.includes('flight') || lower.includes('airline')) {
-        setSelectedPreset(PRESETS[1]!);
-      } else if (lower.includes('xfinity') || lower.includes('comcast') || lower.includes('router')) {
-        setSelectedPreset(PRESETS[2]!);
-      } else {
-        setSelectedPreset(PRESETS[3]!);
+    try {
+      const res = await fetch('/api/triage', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      if (res.ok) {
+        setSelectedPreset(await res.json());
+        return;
       }
-    }, 400);
+    } catch {
+      // fall through to keyword presets
+    } finally {
+      setAnalyzing(false);
+    }
+    // No Gemini key or Gemini failed: keyword-match a demo preset.
+    const lower = query.toLowerCase();
+    if (lower.includes('amazon') || lower.includes('return') || lower.includes('mouse')) {
+      setSelectedPreset(PRESETS[0]!);
+    } else if (lower.includes('delta') || lower.includes('flight') || lower.includes('airline')) {
+      setSelectedPreset(PRESETS[1]!);
+    } else if (lower.includes('xfinity') || lower.includes('comcast') || lower.includes('router')) {
+      setSelectedPreset(PRESETS[2]!);
+    } else {
+      setSelectedPreset(PRESETS[3]!);
+    }
   };
 
   const ChannelIcon =

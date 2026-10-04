@@ -52,24 +52,34 @@ ${senderEmail}`;
     id: string;
     deliveredAt: string;
     recipient: string;
-    subject: string;
+    simulated: boolean;
   } | null>(null);
+  const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
 
-  const handleDispatch = (e: React.FormEvent) => {
+  const handleDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSending(true);
-
-    // Simulate real delivery or dispatch
-    setTimeout(() => {
-      setIsSending(false);
-      setReceipt({
-        id: `msg_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString().slice(-4)}`,
-        deliveredAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        recipient: recipientEmail,
-        subject,
+    setError('');
+    try {
+      const res = await fetch('/api/email/dispatch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ recipientEmail, recipientName, senderName, senderEmail, subject, body }),
       });
-    }, 1000);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Send failed');
+      setReceipt({
+        id: data.id,
+        deliveredAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        recipient: data.sentTo,
+        simulated: data.simulated,
+      });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleCopy = () => {
@@ -93,7 +103,7 @@ ${senderEmail}`;
             </div>
           </div>
           <span className="rounded-full border border-human/20 bg-human-soft px-2.5 py-0.5 text-xs font-medium text-human-strong">
-            Real Inbox Dispatch
+            Sends to your inbox
           </span>
         </div>
 
@@ -101,7 +111,7 @@ ${senderEmail}`;
         <div className="mt-4 rounded-2xl border border-line/60 bg-sunken p-3.5 text-xs text-ink-2 flex items-start gap-2.5">
           <Sparkles className="size-4 text-ai shrink-0 mt-0.5" />
           <span>
-            <strong>Testing tip:</strong> Change the <em>Recipient Support Email</em> below to your own email address to test receiving this ticket in your real inbox.
+            <strong>Demo safety:</strong> the ticket is delivered to your own inbox (<code>DEMO_INBOX_EMAIL</code>), never to the company address below. Without <code>RESEND_API_KEY</code> it&apos;s simulated.
           </span>
         </div>
 
@@ -185,6 +195,8 @@ ${senderEmail}`;
             />
           </div>
 
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+
           <div className="mt-2">
             <button
               type="submit"
@@ -199,7 +211,7 @@ ${senderEmail}`;
               ) : (
                 <>
                   <Send className="size-4" />
-                  <span>Dispatch Ticket to Real Inbox</span>
+                  <span>Dispatch Ticket</span>
                 </>
               )}
             </button>
@@ -219,7 +231,7 @@ ${senderEmail}`;
               <Mail className="size-8 text-muted/60" />
               <p className="mt-3 text-sm font-medium text-ink">No ticket dispatched yet</p>
               <p className="mt-1 text-xs text-muted">
-                Hit &ldquo;Dispatch Ticket to Real Inbox&rdquo; to send this message and obtain an immutable message ID.
+                Hit &ldquo;Dispatch Ticket&rdquo; to send this message and get a message ID.
               </p>
             </div>
           ) : (
@@ -227,10 +239,12 @@ ${senderEmail}`;
               <div className="rounded-2xl border border-human/30 bg-human-soft/40 p-4">
                 <div className="flex items-center gap-2 text-human-strong font-semibold text-sm">
                   <CheckCircle2 className="size-4 text-human" />
-                  <span>Dispatched to Inbox</span>
+                  <span>{receipt.simulated ? 'Simulated send' : 'Sent to your inbox'}</span>
                 </div>
                 <p className="mt-1 text-xs text-ink-2">
-                  Delivered to mail server with 250 OK response.
+                  {receipt.simulated
+                    ? 'No email was sent. Add RESEND_API_KEY and DEMO_INBOX_EMAIL to .env to send for real.'
+                    : 'Accepted by Resend for delivery. Check your inbox (and spam folder).'}
                 </p>
               </div>
 
@@ -240,21 +254,13 @@ ${senderEmail}`;
                   <span className="font-semibold text-ink">{receipt.id}</span>
                 </div>
                 <div className="flex justify-between border-b border-line/60 pb-1.5">
-                  <span className="text-muted">Delivered At:</span>
+                  <span className="text-muted">Sent At:</span>
                   <span className="text-ink">{receipt.deliveredAt}</span>
                 </div>
-                <div className="flex justify-between border-b border-line/60 pb-1.5">
-                  <span className="text-muted">Recipient:</span>
+                <div className="flex justify-between pt-0.5">
+                  <span className="text-muted">{receipt.simulated ? 'Would send to:' : 'Sent to:'}</span>
                   <span className="text-ink truncate max-w-[200px]">{receipt.recipient}</span>
                 </div>
-                <div className="flex justify-between pt-0.5">
-                  <span className="text-muted">Verification:</span>
-                  <span className="text-human font-semibold">DKIM & SPF Verified</span>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-line bg-surface p-3 text-[11px] text-muted leading-relaxed">
-                A formal paper trail has been created. The service provider has been served with the statutory reference numbers and requested remedy.
               </div>
             </div>
           )}
